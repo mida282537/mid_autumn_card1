@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>中秋月明 · 生日快乐</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    overflow: hidden;
+    background: #000;
+    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", sans-serif;
+    height: 100vh;
+    touch-action: none;
+  }
+
+  #bgCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+  }
+
+  /* 启动封面 */
+  #cover {
+    position: absolute;
+    inset: 0;
+    background-color: #000000;
+    z-index: 99;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    cursor: pointer;
+  }
+  .cover-text{
+    color:#fff;
+    font-size:24px;
+  }
+  .cover-img{
+    width:220px;
+    filter: drop-shadow(0 0 12px #ffffff88);
+  }
+
+  /* 顶部胶囊导航 */
+  .top-bar {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 20px;
+    padding: 6px 14px;
+    color: #fff;
+    font-size: 13px;
+    letter-spacing: 1px;
+    backdrop-filter: blur(10px);
+  }
+
+  /* 音乐按钮 */
+  .music-btn {
+    position: fixed;
+    right: 14px;
+    top: 44px;
+    z-index: 30;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 217, 138, 0.45);
+    background: rgba(0, 0, 0, 0.55);
+    color: #ffd98a;
+    font-size: 20px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    box-shadow:
+      0 0 12px rgba(255,217,138,0.35),
+      inset 0 0 10px rgba(255,217,138,0.15);
+  }
+
+  .music-btn.playing {
+    animation: rotate 9s linear infinite;
+  }
+
+  @keyframes rotate {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  .tip {
+    position: fixed;
+    left: 50%;
+    bottom: 70px;
+    transform: translateX(-50%);
+    color: rgba(255, 244, 214, 0.5);
+    font-size: 12px;
+    letter-spacing: 2px;
+    z-index: 20;
+    pointer-events: none;
+  }
+</style>
+</head>
+
+<body>
+<!-- 封面层 -->
+<div id="cover">
+  <div class="cover-text">🏮您有一条中秋祝福，请点击查看🏮</div>
+  < img class="cover-img" src="https://cdn-icons-png.flaticon.com/512/4689/4689906.png" alt="信封爱心">
+</div>
+
+<canvas id="bgCanvas"></canvas>
+
+<div class="top-bar">中秋节快乐</div>
+
+<button class="music-btn" id="musicBtn">♪</button>
+<div class="tip">点击任意位置，开启动画与音乐</div>
+
+<audio id="bgMusic" loop>
+  <source src="https://music.163.com/song/media/outer/url?id=139595.mp3" type="audio/mpeg" />
+
+<script>
+const canvas = document.getElementById("bgCanvas");
+const ctx = canvas.getContext("2d");
+const musicBtn = document.getElementById("musicBtn");
+const bgMusic = document.getElementById("bgMusic");
+const cover = document.getElementById("cover");
+
+let W, H;
+let started = false;
+let musicOn = false;
+let startTime = 0;
+
+// 时间轴
+const TIMELINE = {
+  moonRise: 1200,
+  textAppear: 3500,
+  pushForward: 7200,
+  fadeOut: 10500,
+  textRainStart: 15000
+};
+
+// 月亮
+const moon = {
+  x: 0,
+  y: 0,
+  r: 0,
+  targetY: 0,
+  scale: 1,
+  alpha: 1,
+  blur: 0
+};
+
+// 祝福文字
+const blessingText = {
+  lines: [
+    "中秋月明，岁岁欢喜",
+    "愿这一轮明月，",
+    "照亮团圆，也照亮新一岁的美好。",
+    "祝您中秋安康，岁岁平安，",
+    "万事顺遂，圆满常伴。"
+  ],
+  alpha: 0,
+  scale: 1,
+  blur: 0,
+  offsetY: 0
+};
+
+// 粒子
+let particles = [];
+
+// 文字雨词库
+const rainWords = [
+  "中秋快乐",
+  "平安团圆",
+  "万事圆满",
+  "新岁欢喜",
+  "阖家安康",
+  "幸福长久",
+  "月圆人安",
+  "心想事成",
+  "Happy Birthday",
+  "Mid-Autumn Festival",
+  "Moon & Love",
+  "Forever"
+];
+
+let rainItems = [];
+const RAIN_MAX_COUNT = 90;
+const RAIN_SPAWN_INTERVAL = 45;
+
+class Particle {
+  constructor() {
+    this.reset();
+  }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * -H;
+    this.size = Math.random() * 4 + 1.5;
+    this.speedY = Math.random() * 1.1 + 0.25;
+    this.speedX = Math.random() * 0.5 - 0.25;
+    this.opacity = Math.random() * 0.45 + 0.25;
+    this.rotate = Math.random() * Math.PI * 2;
+    this.rotateSpeed = (Math.random() - 0.5) * 0.02;
+  }
+  update() {
+    this.y += this.speedY;
+    this.x += this.speedX;
+    this.rotate += this.rotateSpeed;
+    if (this.y > H) this.reset();
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotate);
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      ctx.ellipse(0, -this.size, this.size * 0.5, this.size, i * Math.PI / 2, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = `rgba(255,217,138,${this.opacity})`;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+  if (started) initScene();
+}
+
+function initScene() {
+  moon.x = W * 0.5;
+  moon.r = Math.min(80, Math.min(W, H) * 0.14);
+  moon.targetY = H * 0.3;
+  moon.y = H + 120;
+  moon.scale = 1;
+  moon.alpha = 1;
+  moon.blur = 0;
+
+  blessingText.alpha = 0;
+  blessingText.scale = 1;
+  blessingText.blur = 0;
+  blessingText.offsetY = 0;
+
+  rainItems = [];
+  particles = [];
+  for (let i = 0; i < 60; i++) particles.push(new Particle());
+
+  for (let i = 0; i < 40; i++) {
+    createRainItem(Math.random() * H);
+  }
+}
+
+function createRainItem(startY = -20) {
+  const text = rainWords[Math.floor(Math.random() * rainWords.length)];
+
+  const depth = Math.random();
+  const fontSize =
+    depth < 0.25
+      ? Math.max(10, Math.min(16, W * 0.022))
+      : depth < 0.55
+      ? Math.max(14, Math.min(22, W * 0.03))
+      : Math.max(20, Math.min(34, W * 0.046));
+
+  const alpha = 0.15 + depth * 0.7;
+
+  rainItems.push({
+    text: text,
+    x: Math.random() * W,
+    y: startY,
+    size: fontSize,
+    speed: 0.4 + depth * 2.2,
+    alpha: alpha,
+    maxAlpha: alpha,
+    hue: Math.random() < 0.5 ? "gold" : "pink"
+  });
+}
+
+function draw() {
+  if (!started) {
+    requestAnimationFrame(draw);
+    return;
+  }
+
+  const now = performance.now();
+  const t = now - startTime;
+
+  const hueShift = (Math.sin(now * 0.0003) + 1) * 20;
+
+const bg = ctx.createRadialGradient(
+  W * 0.5, H * 0.42, 20,
+  W * 0.5, H * 0.55, Math.max(W, H) * 0.85
+);
+bg.addColorStop(0, `hsl(${260 + hueShift}, 55%, 18%)`);
+bg.addColorStop(0.35, `hsl(${210 + hueShift}, 65%, 12%)`);
+bg.addColorStop(0.55, `hsl(${290 + hueShift}, 45%, 10%)`);
+bg.addColorStop(0.8, `hsl(${320 + hueShift}, 35%, 8%)`);
+bg.addColorStop(1, "#05060f");
+ctx.fillStyle = bg;
+ctx.fillRect(0, 0, W, H);
+
+const glow1 = ctx.createRadialGradient(
+  W * 0.25, H * 0.35, 0,
+  W * 0.25, H * 0.35, Math.max(W, H) * 0.35
+);
+glow1.addColorStop(0, "rgba(255, 180, 110, 0.18)");
+glow1.addColorStop(1, "rgba(255, 180, 110, 0)");
+ctx.fillStyle = glow1;
+ctx.fillRect(0, 0, W, H);
+
+const glow2 = ctx.createRadialGradient(
+  W * 0.75, H * 0.6, 0,
+  W * 0.75, H * 0.6, Math.max(W, H) * 0.4
+);
+glow2.addColorStop(0, "rgba(180, 120, 255, 0.18)");
+glow2.addColorStop(1, "rgba(180, 120, 255, 0)");
+ctx.fillStyle = glow2;
+ctx.fillRect(0, 0, W, H);
+
+const glow3 = ctx.createRadialGradient(
+  W * 0.5, H * 0.8, 0,
+  W * 0.5, H * 0.8, Math.max(W, H) * 0.45
+);
+glow3.addColorStop(0, "rgba(255, 110, 180, 0.12)");
+glow3.addColorStop(1, "rgba(255, 110, 180, 0)");
+ctx.fillStyle = glow3;
+ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+ctx.beginPath();
+ctx.ellipse(W * 0.5, H * 0.48, W * 0.18, H * 0.14, 0, 0, Math.PI * 2);
+ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+ctx.fill();
+
+const rim = ctx.createRadialGradient(
+  W * 0.5, H * 0.48, W * 0.12,
+  W * 0.5, H * 0.48, W * 0.32
+);
+rim.addColorStop(0, "rgba(90, 70, 160, 0.18)");
+rim.addColorStop(1, "rgba(90, 70, 160, 0)");
+ctx.beginPath();
+ctx.arc(W * 0.5, H * 0.48, W * 0.32, 0, Math.PI * 2);
+ctx.fillStyle = rim;
+ctx.restore();
+
+  particles.forEach(p => {
+    p.update();
+    p.draw();
+  });
+
+  if (t >= TIMELINE.moonRise && t < TIMELINE.textAppear) {
+    const progress = (t - TIMELINE.moonRise) / (TIMELINE.textAppear - TIMELINE.moonRise);
+    moon.y = H + 120 - progress * (H + 120 - moon.targetY);
+  }
+
+  if (t >= TIMELINE.textAppear && t < TIMELINE.pushForward) {
+    const progress = (t - TIMELINE.textAppear) / (TIMELINE.pushForward - TIMELINE.textAppear);
+    blessingText.alpha = progress;
+  }
+
+  if (t >= TIMELINE.pushForward && t < TIMELINE.fadeOut) {
+    const progress = (t - TIMELINE.pushForward) / (TIMELINE.fadeOut - TIMELINE.pushForward);
+    moon.scale = 1 + progress * 0.55;
+    blessingText.scale = 1 + progress * 0.35;
+    blessingText.offsetY = progress * 90;
+  }
+
+  if (t >= TIMELINE.fadeOut) {
+    const progress = (t - TIMELINE.fadeOut) / 4000;
+    moon.alpha = Math.max(0, 1 - progress);
+    blessingText.alpha = Math.max(0, blessingText.alpha - progress);
+    moon.blur = progress * 18;
+    blessingText.blur = progress * 14;
+  }
+
+  if (moon.alpha > 0) {
+    ctx.save();
+    ctx.globalAlpha = moon.alpha;
+    ctx.filter = `blur(${moon.blur}px)`;
+    const glow = ctx.createRadialGradient(moon.x, moon.y, moon.r * 0.4, moon.x, moon.y, moon.r * 2.4);
+    glow.addColorStop(0, "rgba(255,217,138,0.45)");
+    glow.addColorStop(1, "rgba(255,217,138,0)");
+    ctx.beginPath();
+    ctx.arc(moon.x, moon.y, moon.r * moon.scale * 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(moon.x, moon.y, moon.r * moon.scale, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffd98a";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (blessingText.alpha > 0) {
+    ctx.save();
+    ctx.globalAlpha = blessingText.alpha;
+    ctx.filter = `blur(${blessingText.blur}px)`;
+    ctx.fillStyle = "#fff4d6";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const startY = H * 0.52 + blessingText.offsetY;
+    blessingText.lines.forEach((line, i) => {
+      const fontSize = i === 0
+        ? Math.max(26, Math.min(44, W * 0.06)) * blessingText.scale
+        : Math.max(16, Math.min(22, W * 0.032)) * blessingText.scale;
+      ctx.font = `${fontSize}px "KaiTi", "STKaiti", serif`;
+      ctx.shadowColor = "rgba(255,217,138,0.55)";
+      ctx.shadowBlur = 12;
+      ctx.fillText(line, W / 2, startY + i * 34 * blessingText.scale);
+    });
+    ctx.restore();
+  }
+
+  if (t >= TIMELINE.textRainStart) {
+    if (rainItems.length < RAIN_MAX_COUNT && Math.random() < 0.6) {
+      createRainItem(-20);
+    }
+  }
+
+  for (let i = rainItems.length - 1; i >= 0; i--) {
+    const item = rainItems[i];
+    item.y += item.speed;
+
+    if (item.y > H + 40) {
+      rainItems.splice(i, 1);
+      continue;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = item.alpha;
+
+    ctx.fillStyle = item.hue === "gold"
+      ? "rgba(255, 217, 138, " + item.alpha + ")"
+      : "rgba(255, 180, 230, " + item.alpha + ")";
+
+    ctx.font = `${item.size}px "Microsoft YaHei", "KaiTi", sans-serif`;
+    ctx.shadowColor = "rgba(255, 217, 138, 0.45)";
+    ctx.shadowBlur = 8;
+    ctx.textAlign = "left";
+    ctx.fillText(item.text, item.x, item.y);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// 点击封面触发：隐藏封面、显示画布、启动动画+音乐
+async function startAll() {
+  if(started) return;
+  cover.style.display = "none";
+  canvas.style.display = "block";
+  started = true;
+  startTime = performance.now();
+  initScene();
+  try {
+    bgMusic.volume = 0.65;
+    await bgMusic.play();
+    musicOn = true;
+    musicBtn.classList.add("playing");
+  } catch (err) {
+    console.error("音乐播放失败：", err);
+  }
+}
+
+// 点击封面任意位置启动
+cover.addEventListener("click", startAll);
+
+// 音乐按钮切换音乐
+musicBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if(!started) return;
+  if(musicOn){
+    bgMusic.pause();
+    musicOn = false;
+    musicBtn.classList.remove("playing");
+  }else{
+    bgMusic.play();
+    musicOn = true;
+    musicBtn.classList.add("playing");
+  }
+});
+
+window.addEventListener("resize", resize);
+resize();
+draw();
+</script>
+
+</body>
+</html>
